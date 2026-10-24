@@ -438,10 +438,11 @@ html, body { background: #e9e2d6; overflow-x: hidden; }
 .world .stats div.working { background: #e9b9a3; }
 .world .stats div.working b, .world .stats div.working span { color: #7a3419; }
 .world .globes { display: flex; flex-direction: column; align-items: center; gap: 0; }
-.world .globe { width: min(100%, 43vh); }
-.world .stats { margin: 6px 0 0; }
-.world .stats div { padding: 6px 4px; }
-.world .stats b { font-size: 18px; }
+.world .globe { width: min(100%, 40vh); width: min(100%, 41svh); }
+.world .stats { margin: 4px 0 0; gap: 6px; }
+.world .stats div { display: flex; align-items: baseline; justify-content: center; gap: 5px; padding: 6px 4px; border-radius: 9px; }
+.world .stats b { display: inline; font-size: 15px; }
+.world .stats span { font-size: 9.5px; letter-spacing: 0.6px; }
 </style>
 <script>
 (function () {
