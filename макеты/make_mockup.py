@@ -203,8 +203,8 @@ def page_world():
   </div>"""
     stats = """
   <div class="stats">
-    <div><b>1</b><span>готова</span></div>
-    <div><b>1</b><span>в работе</span></div>
+    <div class="ready"><b>1</b><span>готова</span></div>
+    <div class="working"><b>1</b><span>в работе</span></div>
     <div><b>2</b><span>страны</span></div>
   </div>"""
     globes = f"""
@@ -216,7 +216,7 @@ def page_world():
         return f"""
 <section class="page world" id="world" style="page: world; height: {h}mm">
   <header class="top">
-    <h1>Места, где я не был</h1>{legend}
+    <h1>Места, где я не был</h1>
   </header>{globes}{stats}
 </section>"""
     return f"""
@@ -433,9 +433,12 @@ html, body { background: #e9e2d6; overflow-x: hidden; }
 .globe svg, .map svg { max-height: none; }
 .world { min-height: 100vh; padding-top: 10px; }
 .world h1 { font-size: 20px; }
-.world .legend { margin: 4px 0 0; gap: 14px; font-size: 11.5px; white-space: nowrap; }
+.world .stats div.ready { background: #b5532f; }
+.world .stats div.ready b, .world .stats div.ready span { color: #fff; }
+.world .stats div.working { background: #e9b9a3; }
+.world .stats div.working b, .world .stats div.working span { color: #7a3419; }
 .world .globes { display: flex; flex-direction: column; align-items: center; gap: 0; }
-.world .globe { width: min(100%, 42vh); }
+.world .globe { width: min(100%, 43vh); }
 .world .stats { margin: 6px 0 0; }
 .world .stats div { padding: 6px 4px; }
 .world .stats b { font-size: 18px; }
