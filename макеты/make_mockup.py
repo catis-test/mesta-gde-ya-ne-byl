@@ -198,8 +198,8 @@ def page_world():
     PAGE_RULES.append(f"@page world {{ size: 100mm {h}mm; margin: 0; }}")
     legend = """
   <div class="legend">
-    <span><i class="sw ready"></i>Готова</span>
-    <span><i class="sw working"></i>В работе</span>
+    <span><i class="sw ready"></i>Мечта готова</span>
+    <span><i class="sw working"></i>Мечта в работе</span>
   </div>"""
     stats = """
   <div class="stats">
@@ -215,7 +215,7 @@ def page_world():
     if WEB:
         return f"""
 <section class="page world" id="world" style="page: world; height: {h}mm">
-  <header class="top row">
+  <header class="top">
     <h1>Места, где я не был</h1>{legend}
   </header>{globes}{stats}
 </section>"""
@@ -432,11 +432,10 @@ html, body { background: #e9e2d6; overflow-x: hidden; }
 .src a { color: #3b6ea5; }
 .globe svg, .map svg { max-height: none; }
 .world { min-height: 100vh; padding-top: 10px; }
-.world .top.row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 2px; }
-.world h1 { font-size: 19px; }
-.world .legend { margin: 0; gap: 10px; font-size: 10.5px; white-space: nowrap; }
+.world h1 { font-size: 20px; }
+.world .legend { margin: 4px 0 0; gap: 14px; font-size: 11.5px; white-space: nowrap; }
 .world .globes { display: flex; flex-direction: column; align-items: center; gap: 0; }
-.world .globe { width: min(100%, 44vh); }
+.world .globe { width: min(100%, 42vh); }
 .world .stats { margin: 6px 0 0; }
 .world .stats div { padding: 6px 4px; }
 .world .stats b { font-size: 18px; }
