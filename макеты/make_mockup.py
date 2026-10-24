@@ -196,25 +196,35 @@ PERU_PTS = [
 def page_world():
     h = HEIGHTS.get("world", 216)
     PAGE_RULES.append(f"@page world {{ size: 100mm {h}mm; margin: 0; }}")
+    legend = """
+  <div class="legend">
+    <span><i class="sw ready"></i>Готова</span>
+    <span><i class="sw working"></i>В работе</span>
+  </div>"""
+    stats = """
+  <div class="stats">
+    <div><b>1</b><span>готова</span></div>
+    <div><b>1</b><span>в работе</span></div>
+    <div><b>2</b><span>страны</span></div>
+  </div>"""
+    globes = f"""
+  <div class="globes">
+    <div class="globe">{globe_svg(70, 0)}</div>
+    <div class="globe">{globe_svg(-92, 0)}</div>
+  </div>"""
+    if WEB:
+        return f"""
+<section class="page world" id="world" style="page: world; height: {h}mm">
+  <header class="top row">
+    <h1>Места, где я не был</h1>{legend}
+  </header>{globes}{stats}
+</section>"""
     return f"""
 <section class="page world" id="world" style="page: world; height: {h}mm">
   <header class="top">
     <h1>Места, где я не был</h1>
     <p class="sub">Мечты, которые я проработал</p>
-  </header>
-  <div class="globes">
-    <div class="globe">{globe_svg(70, 0)}</div>
-    <div class="globe">{globe_svg(-92, 0)}</div>
-  </div>
-  <div class="legend">
-    <span><i class="sw ready"></i>Мечта готова</span>
-    <span><i class="sw working"></i>В работе</span>
-  </div>
-  <div class="stats">
-    <div><b>1</b><span>готова</span></div>
-    <div><b>1</b><span>в работе</span></div>
-    <div><b>2</b><span>страны</span></div>
-  </div>
+  </header>{globes}{legend}{stats}
   <ul class="list">
     <li data-go="uganda"><span class="dot ready"></span><span class="name">Уганда</span><span class="meta">гориллы и шимпанзе · 3 точки</span></li>
     <li data-go="peru"><span class="dot working"></span><span class="name">Перу</span><span class="meta">верховья Амазонки · 3 точки</span></li>
@@ -421,6 +431,15 @@ html, body { background: #e9e2d6; overflow-x: hidden; }
 .src ul { padding-left: 16px; margin: 4px 0; }
 .src a { color: #3b6ea5; }
 .globe svg, .map svg { max-height: none; }
+.world { min-height: 100vh; padding-top: 10px; }
+.world .top.row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 2px; }
+.world h1 { font-size: 19px; }
+.world .legend { margin: 0; gap: 10px; font-size: 10.5px; white-space: nowrap; }
+.world .globes { display: flex; flex-direction: column; align-items: center; gap: 0; }
+.world .globe { width: min(100%, 44vh); }
+.world .stats { margin: 6px 0 0; }
+.world .stats div { padding: 6px 4px; }
+.world .stats b { font-size: 18px; }
 </style>
 <script>
 (function () {

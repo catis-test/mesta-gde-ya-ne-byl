@@ -88,9 +88,12 @@ h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; color: #
 @page world { size: 100mm 216mm; margin: 0; }</style></head>
 <body>
 <section class="page world" id="world" style="page: world; height: 216mm">
-  <header class="top">
+  <header class="top row">
     <h1>Места, где я не был</h1>
-    <p class="sub">Мечты, которые я проработал</p>
+  <div class="legend">
+    <span><i class="sw ready"></i>Готова</span>
+    <span><i class="sw working"></i>В работе</span>
+  </div>
   </header>
   <div class="globes">
     <div class="globe"><svg viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg">
@@ -336,20 +339,11 @@ h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; color: #
 <path class="land" d="M445.8 245.1 L448.2 244.5 L449.2 244.6 L449.4 248.4 L445.8 248.9 L444.9 248.5 L446.1 247.1 L445.8 245.1Z"/>
 </g><circle class="rim" cx="300.0" cy="300.0" r="294.0"/></svg></div>
   </div>
-  <div class="legend">
-    <span><i class="sw ready"></i>Мечта готова</span>
-    <span><i class="sw working"></i>В работе</span>
-  </div>
   <div class="stats">
     <div><b>1</b><span>готова</span></div>
     <div><b>1</b><span>в работе</span></div>
     <div><b>2</b><span>страны</span></div>
   </div>
-  <ul class="list">
-    <li data-go="uganda"><span class="dot ready"></span><span class="name">Уганда</span><span class="meta">гориллы и шимпанзе · 3 точки</span></li>
-    <li data-go="peru"><span class="dot working"></span><span class="name">Перу</span><span class="meta">верховья Амазонки · 3 точки</span></li>
-  </ul>
-  <p class="hint">Нажмите на страну, чтобы открыть мечту</p>
 </section>
 <section class="page country" id="uganda" style="page: uganda; height: 372mm">
   <header class="top row">
@@ -462,6 +456,15 @@ html, body { background: #e9e2d6; overflow-x: hidden; }
 .src ul { padding-left: 16px; margin: 4px 0; }
 .src a { color: #3b6ea5; }
 .globe svg, .map svg { max-height: none; }
+.world { min-height: 100vh; padding-top: 10px; }
+.world .top.row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 2px; }
+.world h1 { font-size: 19px; }
+.world .legend { margin: 0; gap: 10px; font-size: 10.5px; white-space: nowrap; }
+.world .globes { display: flex; flex-direction: column; align-items: center; gap: 0; }
+.world .globe { width: min(100%, 44vh); }
+.world .stats { margin: 6px 0 0; }
+.world .stats div { padding: 6px 4px; }
+.world .stats b { font-size: 18px; }
 </style>
 <script>
 (function () {
