@@ -192,7 +192,7 @@ def globe_svg(lon0, lat0, size=600, pad=6):
             continue
         cls = "ready" if n in READY else "working" if n in WORKING else "land"
         go = f' data-go="{SLUGS[n]}"' if n in SLUGS else ""
-        parts.append(f'<path class="{cls}"{go} d="{path(f["geometry"], proj)}"/>')
+        parts.append(f'<path class="{cls}"{go} data-admin="{html.escape(n)}" d="{path(f["geometry"], proj)}"/>')
     parts.append(f'</g><circle class="rim" cx="{cx}" cy="{cy}" r="{R}"/></svg>')
     return "\n".join(parts)
 
@@ -254,12 +254,28 @@ def page_world():
     <div class="globe">{globe_svg(-92, 0)}</div>
   </div>"""
     if WEB:
+        countries = sorted(
+            ((f["properties"]["ADMIN"], f["properties"].get("NAME_RU") or f["properties"]["ADMIN"])
+             for f in W110["features"] if f["properties"]["ADMIN"] != "Antarctica"),
+            key=lambda r: r[1])
+        opts = "".join(f'<option value="{html.escape(a)}">{html.escape(r)}</option>' for a, r in countries)
         return f"""
 <section class="page world" id="world" style="page: world; height: {h}mm">
   <header class="top">
     <h1>Места, где я не был</h1>
-    <span class="add" title="Добавить мечту" aria-label="Добавить мечту">+</span>
+    <span class="add" data-go="new" title="Добавить мечту" aria-label="Добавить мечту">+</span>
   </header>{globes}{stats}
+</section>
+<section class="page draft" id="new">
+  <header class="top row">
+    <span class="back" data-go="world">‹ Карта</span>
+    <h1>Новая мечта</h1>
+  </header>
+  <label class="fl" for="new-country">Страна</label>
+  <select id="new-country"><option value="">— выберите —</option>{opts}</select>
+  <label class="fl" for="new-text">Заметки</label>
+  <textarea id="new-text" placeholder="Пишите или диктуйте всё, что приходит: откуда мечта, что читали, куда хочется"></textarea>
+  <div class="btns"><button class="btn primary" id="new-save">Сохранить</button><button class="btn" data-go="world">Отмена</button></div>
 </section>"""
     legend = """
   <div class="legend">
@@ -434,6 +450,15 @@ html, body { background: #e9e2d6; overflow-x: hidden; }
 .world .stats div { display: flex; align-items: baseline; justify-content: center; gap: 5px; padding: 6px 4px; border-radius: 9px; }
 .world .stats b { display: inline; font-size: 15px; }
 .world .stats span { font-size: 9.5px; letter-spacing: 0.6px; }
+.draft .fl { margin: 14px 0 4px; }
+.draft select, .draft textarea { width: 100%; font: inherit; font-size: 15px; color: #2a2622; background: #fff; border: 1px solid #ddd5c8; border-radius: 10px; padding: 10px 12px; }
+.draft select { -webkit-appearance: none; appearance: none; }
+.draft textarea { min-height: 50vh; resize: vertical; line-height: 1.4; }
+.btns { display: flex; gap: 8px; margin-top: 14px; }
+.btn { flex: 1; font: inherit; font-size: 15px; font-weight: 600; padding: 11px; border-radius: 12px; border: 1px solid #ddd5c8; background: #fff; color: #2a2622; cursor: pointer; }
+.btn.primary { background: #b5532f; border-color: #b5532f; color: #fff; }
+.btn.danger { color: #8a3a1f; }
+.draft .sub { margin-bottom: 4px; }
 </style>
 <script>
 (function () {
@@ -456,7 +481,71 @@ html, body { background: #e9e2d6; overflow-x: hidden; }
       try { localStorage.setItem(key, t.classList.contains('on') ? '1' : '0'); } catch (e) {}
     });
   });
+  // ---- черновики мечт: хранятся в телефоне ----
+  var KEY = 'drafts';
+  function loadDrafts() { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; } }
+  function saveDrafts(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) { alert('Не удалось сохранить: браузер не даёт места для хранения'); } }
+  function slugOf(admin) { return 'draft-' + admin.toLowerCase().replace(/[^a-z0-9]+/g, '-'); }
+  var select = document.getElementById('new-country');
+  var nameRu = {};
+  if (select) Array.prototype.forEach.call(select.options, function (o) { if (o.value) nameRu[o.value] = o.textContent; });
+
+  function renderDrafts() {
+    var drafts = loadDrafts();
+    document.querySelectorAll('.page.draft[data-draft]').forEach(function (p) { p.remove(); });
+    document.querySelectorAll('[data-admin]').forEach(function (el) {
+      if (el.dataset.draft) { el.classList.remove('working'); el.classList.add('land'); el.removeAttribute('data-go'); delete el.dataset.draft; }
+    });
+    drafts.forEach(function (d) {
+      var slug = slugOf(d.admin);
+      document.querySelectorAll('[data-admin="' + d.admin + '"]').forEach(function (el) {
+        if (el.classList.contains('ready')) return;
+        el.classList.remove('land'); el.classList.add('working'); el.dataset.go = slug; el.dataset.draft = '1';
+      });
+      var sec = document.createElement('section');
+      sec.className = 'page draft'; sec.id = slug; sec.dataset.draft = '1';
+      sec.innerHTML = '<header class="top row"><span class="back" data-go="world">‹ Карта</span><h1></h1></header>'
+        + '<p class="sub">Мечта в работе</p>'
+        + '<textarea class="notes" placeholder="Заметки"></textarea>'
+        + '<div class="btns"><button class="btn primary act-copy">Скопировать</button><button class="btn danger act-del">Удалить</button></div>';
+      sec.querySelector('h1').textContent = nameRu[d.admin] || d.admin;
+      var ta = sec.querySelector('.notes'); ta.value = d.text;
+      ta.addEventListener('input', function () { d.text = ta.value; saveDrafts(drafts); });
+      sec.querySelector('.act-copy').addEventListener('click', function () {
+        var txt = (nameRu[d.admin] || d.admin) + '\\n\\n' + ta.value;
+        if (navigator.clipboard) navigator.clipboard.writeText(txt).then(function () { alert('Скопировано'); });
+        else { ta.select(); document.execCommand('copy'); alert('Скопировано'); }
+      });
+      sec.querySelector('.act-del').addEventListener('click', function () {
+        if (!confirm('Удалить черновик «' + (nameRu[d.admin] || d.admin) + '»?')) return;
+        saveDrafts(drafts.filter(function (x) { return x !== d; })); renderDrafts(); location.hash = 'world';
+      });
+      document.body.insertBefore(sec, document.body.querySelector('script'));
+      sec.querySelectorAll('[data-go]').forEach(function (el) { el.addEventListener('click', function () { location.hash = el.dataset.go; }); });
+    });
+    var ready = document.querySelectorAll('.page.country .toggle.on').length;
+    var st = document.querySelectorAll('.world .stats div');
+    if (st.length === 3) {
+      st[0].innerHTML = '<b>' + ready + '</b><span>' + (ready === 1 ? 'готова' : 'готовы') + '</span>';
+      st[1].innerHTML = '<b>' + drafts.length + '</b><span>в работе</span>';
+      var tot = ready + drafts.length;
+      st[2].innerHTML = '<b>' + tot + '</b><span>' + (tot === 1 ? 'страна' : 'страны') + '</span>';
+    }
+    pages = document.querySelectorAll('.page');
+  }
+  var saveBtn = document.getElementById('new-save');
+  if (saveBtn) saveBtn.addEventListener('click', function () {
+    var admin = select.value, text = document.getElementById('new-text').value.trim();
+    if (!admin) { alert('Выберите страну'); return; }
+    var drafts = loadDrafts();
+    var ex = drafts.filter(function (d) { return d.admin === admin; })[0];
+    if (ex) ex.text = (ex.text ? ex.text + '\\n\\n' : '') + text; else drafts.push({ admin: admin, text: text, created: new Date().toISOString() });
+    saveDrafts(drafts); renderDrafts();
+    select.value = ''; document.getElementById('new-text').value = '';
+    location.hash = slugOf(admin);
+  });
   window.addEventListener('hashchange', show);
+  renderDrafts();
   show();
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(function () {});

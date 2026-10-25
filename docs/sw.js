@@ -1,6 +1,6 @@
 // Service worker: страница сохраняется в телефоне и открывается без сети.
 // Стратегия: отдать сохранённую копию сразу, в фоне подтянуть свежую.
-const CACHE = 'mesta-v1';
+const CACHE = 'mesta-v2';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-180.png'];
 
 self.addEventListener('install', (e) => {
