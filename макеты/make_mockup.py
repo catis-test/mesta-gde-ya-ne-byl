@@ -1,14 +1,99 @@
 #!/usr/bin/env python3
-"""Собирает HTML-макет приложения «Места, где я не был»: мир, Уганда, Перу.
-Запуск: python3 -I make_mockup.py <папка с GeoJSON> <выходной html>
+"""Собирает «Места, где я не был» из папок-мечт.
+
+Каждая мечта — папка рядом с этой (например «Уганда/») с файлом «мечта.md»
+и папкой «доска/» с картинками. Скрипт сам находит все такие папки.
+
+Запуск:
+  PDF:  python3 -I make_mockup.py <папка с GeoJSON> <выход.html> '<json высот>'
+  веб:  python3 -I make_mockup.py <папка с GeoJSON> <выход.html> '{}' web
 """
-import json, math, sys, html, os, base64, mimetypes
+import json, math, sys, html, os, base64, mimetypes, re
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+DATA, OUT = sys.argv[1], sys.argv[2]
+HEIGHTS = json.loads(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else {}
+WEB = len(sys.argv) > 4 and sys.argv[4] == "web"
 
-def board_cards(country_dir, placeholders):
-    """Карточки доски: картинки из папки «<страна>/доска», иначе заглушки."""
-    d = os.path.join(ROOT, country_dir, "доска")
+# ---------- чтение мечты из «мечта.md» ----------
+def parse_dream(path):
+    """Простой разбор: «# Заголовок», строки «ключ: значение», разделы «## …», пункты «- …»."""
+    d = {"title": "", "meta": {}, "sections": {}}
+    cur = None
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.rstrip("\n")
+            if line.startswith("# ") and not d["title"]:
+                d["title"] = line[2:].strip()
+            elif line.startswith("## "):
+                cur = line[3:].strip()
+                d["sections"][cur] = {"text": [], "items": [], "meta": {}}
+            elif cur is None:
+                m = re.match(r"^([^:]+):\s*(.*)$", line)
+                if m:
+                    d["meta"][m.group(1).strip()] = m.group(2).strip()
+            else:
+                sec = d["sections"][cur]
+                if line.startswith("- "):
+                    sec["items"].append(line[2:].strip())
+                else:
+                    m = re.match(r"^([^:|]+):\s*(.*)$", line)
+                    if m and len(m.group(1)) < 20:
+                        sec["meta"][m.group(1).strip()] = m.group(2).strip()
+                    elif line.strip():
+                        sec["text"].append(line.strip())
+    return d
+
+def load_dreams():
+    dreams = []
+    for name in sorted(os.listdir(ROOT)):
+        p = os.path.join(ROOT, name, "мечта.md")
+        if not os.path.isfile(p):
+            continue
+        d = parse_dream(p)
+        m = d["meta"]
+        pts = []
+        for it in d["sections"].get("Точки", {}).get("items", []):
+            parts = [x.strip() for x in it.split("|")]
+            lon, lat = (float(v) for v in parts[0].split(","))
+            kind = "hub" if len(parts) > 2 and parts[2] in ("узел", "hub") else "main"
+            pts.append((lon, lat, parts[1], kind))
+        routes = []
+        for it in d["sections"].get("Маршруты", {}).get("items", []):
+            parts = [x.strip() for x in it.split("|")] + ["", "", ""]
+            cls = "warn" if parts[2] in ("дорого", "warn") else "old" if parts[2] in ("устарел", "old") else "ok"
+            routes.append((parts[0], parts[1], cls, parts[3]))
+        bbox = tuple(float(v) for v in m.get("карта", "0,0,1,1").split(","))
+        dreams.append({
+            "folder": name,
+            "slug": m.get("ключ", name.lower()),
+            "country": m.get("страна", ""),
+            "title": d["title"] or name,
+            "subtitle": m.get("подзаголовок", ""),
+            "short": m.get("коротко", ""),
+            "ready": m.get("готова", "нет").lower() in ("да", "yes", "true", "1"),
+            "bbox": bbox,
+            "lakes": m.get("озёра", "да").lower() == "да",
+            "rivers": m.get("реки", "нет").lower() == "да",
+            "order": int(m.get("порядок", "99")),
+            "why": " ".join(d["sections"].get("Почему туда", {}).get("text", [])),
+            "points": pts,
+            "books": d["sections"].get("Что привело", {}).get("items", []),
+            "season": d["sections"].get("Когда и почём", {}).get("meta", {}).get("сезон", ""),
+            "budget": d["sections"].get("Когда и почём", {}).get("meta", {}).get("бюджет", ""),
+            "routes": routes,
+        })
+    dreams.sort(key=lambda x: (x["order"], x["title"]))
+    return dreams
+
+DREAMS = load_dreams()
+READY = {d["country"] for d in DREAMS if d["ready"]}
+WORKING = {d["country"] for d in DREAMS if not d["ready"]}
+SLUGS = {d["country"]: d["slug"] for d in DREAMS}
+
+# ---------- доска картинок ----------
+def board_cards(folder):
+    d = os.path.join(ROOT, folder, "доска")
     cards = []
     if os.path.isdir(d):
         for name in sorted(os.listdir(d)):
@@ -20,29 +105,24 @@ def board_cards(country_dir, placeholders):
             mime = mimetypes.guess_type(name)[0] or "image/jpeg"
             cap = os.path.splitext(name)[0]
             cap = cap.split(" ", 1)[1] if cap[:2].isdigit() and " " in cap else cap
-            cards.append(f'<figure><img src="data:{mime};base64,{data}"><figcaption>{html.escape(cap)}</figcaption></figure>')
-    srcs = []
+            cards.append(f'<figure><img src="data:{mime};base64,{data}" alt=""><figcaption>{html.escape(cap)}</figcaption></figure>')
     sp = os.path.join(d, "источники.txt")
     if WEB and cards and os.path.exists(sp):
+        srcs = []
         lines = [l.rstrip() for l in open(sp, encoding="utf-8")]
         for i, l in enumerate(lines):
-            if l and not l.startswith(" ") and i + 2 < len(lines) and lines[i+1].startswith("  http"):
+            if l and not l.startswith(" ") and i + 2 < len(lines) and lines[i + 1].startswith("  http"):
                 nm = os.path.splitext(l.strip())[0]
                 nm = nm.split(" ", 1)[1] if nm[:1] in "UP" and nm[1:2] == " " else nm
                 nm = nm.split(" ", 1)[1] if nm[:2].isdigit() else nm
-                srcs.append(f'<li>{html.escape(nm)} — <a href="{html.escape(lines[i+1].strip())}">источник</a>, {html.escape(lines[i+2].strip())}</li>')
+                srcs.append(f'<li>{html.escape(nm)} — <a href="{html.escape(lines[i + 1].strip())}">источник</a>, {html.escape(lines[i + 2].strip())}</li>')
         if srcs:
             cards.append('<details class="src"><summary>Откуда картинки</summary><ul>' + "".join(srcs) + '</ul></details>')
     if not cards:
-        for cap, h in placeholders:
-            cards.append(f'<figure><div class="ph" style="height:{h}mm">{html.escape(cap.split(":")[0])}</div><figcaption>{html.escape(cap)}</figcaption></figure>')
+        cards.append('<figure><div class="ph" style="height:28mm">доска пуста</div><figcaption>Положите картинки в папку «доска»</figcaption></figure>')
     return "".join(cards)
 
-DATA, OUT = sys.argv[1], sys.argv[2]
-HEIGHTS = json.loads(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else {}
-WEB = len(sys.argv) > 4 and sys.argv[4] == "web"
-SLUGS = {"Uganda": "uganda", "Peru": "peru"}
-
+# ---------- геоданные ----------
 def load(name):
     with open(f"{DATA}/{name}.geojson", encoding="utf-8") as f:
         return json.load(f)
@@ -74,14 +154,6 @@ def path(geom, proj, close=True):
         d.append("M" + " L".join(f"{x:.1f} {y:.1f}" for x, y in pts) + ("Z" if close else ""))
     return " ".join(d)
 
-# ---------- мир (равнопромежуточная проекция, без Антарктиды) ----------
-WW, WH = 1000, 520
-LAT_TOP, LAT_BOT = 84, -58
-def proj_world(lon, lat):
-    x = (lon + 180) / 360 * WW
-    y = (LAT_TOP - lat) / (LAT_TOP - LAT_BOT) * WH
-    return x, y
-
 def globe_svg(lon0, lat0, size=600, pad=6):
     """Полушарие в ортографической проекции с центром (lon0, lat0)."""
     R = size / 2 - pad
@@ -103,11 +175,11 @@ def globe_svg(lon0, lat0, size=600, pad=6):
                 if math.sin(la0) * math.sin(la) + math.cos(la0) * math.cos(la) * math.cos(lo - lo0) > 0:
                     return True
         return False
+    gid = f"g{int(lon0)}".replace("-", "m")
     parts = [f'<svg viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">',
-             f'<defs><clipPath id="g{int(lon0)}"><circle cx="{cx}" cy="{cy}" r="{R}"/></clipPath></defs>',
+             f'<defs><clipPath id="{gid}"><circle cx="{cx}" cy="{cy}" r="{R}"/></clipPath></defs>',
              f'<circle class="sea" cx="{cx}" cy="{cy}" r="{R}"/>',
-             f'<g clip-path="url(#g{int(lon0)})">']
-    # сетка
+             f'<g clip-path="url(#{gid})">']
     for lat in range(-60, 90, 30):
         pts = [proj(lon, lat) for lon in range(-180, 181, 3)]
         parts.append('<path class="grat" d="M' + " L".join(f"{x:.1f} {y:.1f}" for x, y in pts) + '"/>')
@@ -124,23 +196,7 @@ def globe_svg(lon0, lat0, size=600, pad=6):
     parts.append(f'</g><circle class="rim" cx="{cx}" cy="{cy}" r="{R}"/></svg>')
     return "\n".join(parts)
 
-READY = {"Uganda", "Peru"}  # мечта готова — тёмная заливка
-WORKING = set()             # в работе — бледная заливка
-
-def world_svg():
-    parts = [f'<svg viewBox="0 0 {WW} {WH}" xmlns="http://www.w3.org/2000/svg">']
-    for f in W110["features"]:
-        n = f["properties"]["ADMIN"]
-        if n == "Antarctica":
-            continue
-        cls = "ready" if n in READY else "working" if n in WORKING else "land"
-        parts.append(f'<path class="{cls}" d="{path(f["geometry"], proj_world)}"/>')
-    parts.append("</svg>")
-    return "\n".join(parts)
-
-# ---------- страна ----------
 def in_bbox(geom, bbox):
-    """Пересекается ли геометрия с окном карты (грубо, по крайним точкам)."""
     lon0, lat0, lon1, lat1 = bbox
     for r in rings(geom):
         xs = [pt[0] for pt in r]; ys = [pt[1] for pt in r]
@@ -152,19 +208,16 @@ def country_svg(name, bbox, points, lakes=True, rivers=False, size=(600, 600)):
     lon0, lat0, lon1, lat1 = bbox
     SW, SH = size
     k = math.cos(math.radians((lat0 + lat1) / 2))
-    sx = SW / ((lon1 - lon0) * k)
-    sy = SH / (lat1 - lat0)
-    s = min(sx, sy)
+    s = min(SW / ((lon1 - lon0) * k), SH / (lat1 - lat0))
     ox = (SW - (lon1 - lon0) * k * s) / 2
     oy = (SH - (lat1 - lat0) * s) / 2
     def proj(lon, lat):
         return ox + (lon - lon0) * k * s, oy + (lat1 - lat) * s
     parts = [f'<svg viewBox="0 0 {SW} {SH}" xmlns="http://www.w3.org/2000/svg">']
     for f in W50["features"]:
-        n = f["properties"]["ADMIN"]
         if not in_bbox(f["geometry"], bbox):
             continue
-        cls = "focus" if n == name else "neighbor"
+        cls = "focus" if f["properties"]["ADMIN"] == name else "neighbor"
         parts.append(f'<path class="{cls}" d="{path(f["geometry"], proj)}"/>')
     if lakes:
         for f in LAKES["features"]:
@@ -177,30 +230,17 @@ def country_svg(name, bbox, points, lakes=True, rivers=False, size=(600, 600)):
     for i, (lon, lat, label, kind) in enumerate(points, 1):
         x, y = proj(lon, lat)
         parts.append(f'<circle class="pt {kind}" cx="{x:.1f}" cy="{y:.1f}" r="11"/>')
-        parts.append(f'<text class="ptn" x="{x:.1f}" y="{y+4.5:.1f}" text-anchor="middle">{i}</text>')
-        parts.append(f'<text class="ptl" x="{x+16:.1f}" y="{y+5:.1f}">{html.escape(label)}</text>')
+        parts.append(f'<text class="ptn" x="{x:.1f}" y="{y + 4.5:.1f}" text-anchor="middle">{i}</text>')
+        parts.append(f'<text class="ptl" x="{x + 16:.1f}" y="{y + 5:.1f}">{html.escape(label)}</text>')
     parts.append("</svg>")
     return "\n".join(parts)
 
-UGANDA_PTS = [
-    (32.44, 0.04,  "Энтеббе (EBB)", "hub"),
-    (29.65, -1.05, "Бвинди — горные гориллы", "main"),
-    (30.35, 0.56,  "Кибале, Каньявара — шимпанзе Рэнгема", "main"),
-]
-PERU_PTS = [
-    (-77.11, -12.02, "Лима, пересадка", "hub"),
-    (-69.19, -12.59, "Пуэрто-Мальдонадо (PEM)", "hub"),
-    (-70.35, -11.65, "Станция рейнджеров, Лас-Пьедрас", "main"),
-]
+# ---------- страницы ----------
+PAGE_RULES = []
 
 def page_world():
     h = HEIGHTS.get("world", 216)
     PAGE_RULES.append(f"@page world {{ size: 100mm {h}mm; margin: 0; }}")
-    legend = """
-  <div class="legend">
-    <span><i class="sw ready"></i>Мечта готова</span>
-    <span><i class="sw working"></i>Мечта в работе</span>
-  </div>"""
     nr, nw = len(READY), len(WORKING)
     stats = f"""
   <div class="stats">
@@ -221,120 +261,64 @@ def page_world():
     <span class="add" title="Добавить мечту" aria-label="Добавить мечту">+</span>
   </header>{globes}{stats}
 </section>"""
+    legend = """
+  <div class="legend">
+    <span><i class="sw ready"></i>Мечта готова</span>
+    <span><i class="sw working"></i>Мечта в работе</span>
+  </div>"""
+    items = "".join(
+        f'<li data-go="{d["slug"]}"><span class="dot {"ready" if d["ready"] else "working"}"></span>'
+        f'<span class="name">{html.escape(d["title"])}</span>'
+        f'<span class="meta">{html.escape(d["short"])} · {len(d["points"])} точки</span></li>'
+        for d in DREAMS)
     return f"""
 <section class="page world" id="world" style="page: world; height: {h}mm">
   <header class="top">
     <h1>Места, где я не был</h1>
     <p class="sub">Мечты, которые я проработал</p>
   </header>{globes}{legend}{stats}
-  <ul class="list">
-    <li data-go="uganda"><span class="dot {'ready' if 'Uganda' in READY else 'working'}"></span><span class="name">Уганда</span><span class="meta">гориллы и шимпанзе · 3 точки</span></li>
-    <li data-go="peru"><span class="dot {'ready' if 'Peru' in READY else 'working'}"></span><span class="name">Перу</span><span class="meta">верховья Амазонки · 3 точки</span></li>
-  </ul>
+  <ul class="list">{items}</ul>
   <p class="hint">Нажмите на страну, чтобы открыть мечту</p>
 </section>"""
 
-PAGE_RULES = []
-
-def page_country(title, subtitle, svg, ready, text, points, books, routes, season="", budget="", board="", slug="c", height=300):
-    height = HEIGHTS.get(slug, height)
+def page_country(d):
+    slug = d["slug"]
+    height = HEIGHTS.get(slug, 300)
     PAGE_RULES.append(f"@page {slug} {{ size: 100mm {height}mm; margin: 0; }}")
-    pts = "".join(f'<li><span class="num">{i}</span>{html.escape(p[2])}</li>' for i, p in enumerate(points, 1))
-    bks = "".join(f'<li>{html.escape(b)}</li>' for b in books)
+    svg = country_svg(d["country"], d["bbox"], d["points"], lakes=d["lakes"], rivers=d["rivers"])
+    pts = "".join(f'<li><span class="num">{i}</span>{html.escape(p[2])}</li>' for i, p in enumerate(d["points"], 1))
+    bks = "".join(f'<li>{html.escape(b)}</li>' for b in d["books"])
     rts = "".join(
         f'<li><div class="rrow"><span class="link">{html.escape(r[0])}</span><span class="tag {r[2]}">{html.escape(r[1])}</span></div>'
-        + (f'<div class="rmeta">{html.escape(r[3])}</div>' if len(r) > 3 and r[3] else "") + '</li>'
-        for r in routes)
-    toggle = "on" if ready else "off"
+        + (f'<div class="rmeta">{html.escape(r[3])}</div>' if r[3] else "") + '</li>'
+        for r in d["routes"])
     return f"""
 <section class="page country" id="{slug}" style="page: {slug}; height: {height}mm">
   <header class="top row">
     <span class="back" data-go="world">‹ Карта</span>
-    <h1>{html.escape(title)}</h1>
+    <h1>{html.escape(d["title"])}</h1>
   </header>
-  <p class="sub">{html.escape(subtitle)}</p>
+  <p class="sub">{html.escape(d["subtitle"])}</p>
   <div class="map">{svg}</div>
-  <div class="board">{board}</div>
+  <div class="board">{board_cards(d["folder"])}</div>
   <h2>Почему туда</h2>
-  <p class="text">{text}</p>
+  <p class="text">{html.escape(d["why"])}</p>
   <h2>Точки</h2>
   <ol class="points">{pts}</ol>
   <h2>Что привело</h2>
   <ul class="books">{bks}</ul>
   <h2>Когда и почём</h2>
   <div class="facts">
-    <div><span class="fl">Сезон</span><span class="fv">{html.escape(season)}</span></div>
-    <div><span class="fl">Бюджет</span><span class="fv">{html.escape(budget)}</span></div>
+    <div><span class="fl">Сезон</span><span class="fv">{html.escape(d["season"])}</span></div>
+    <div><span class="fl">Бюджет</span><span class="fv">{html.escape(d["budget"])}</span></div>
   </div>
   <h2>Маршруты компаний</h2>
   <ul class="routes">{rts}</ul>
-  <div class="toggle {toggle}">
+  <div class="toggle {'on' if d['ready'] else 'off'}">
     <span>Мечта готова</span>
     <i></i>
   </div>
 </section>"""
-
-UG = page_country(
-    "Уганда", "Гориллы и шимпанзе за одну поездку",
-    country_svg("Uganda", (29.3, -1.6, 35.2, 4.4), UGANDA_PTS, lakes=True),
-    "Uganda" in READY,
-    "Поход к горным гориллам в Бвинди и в той же поездке — шимпанзе в Кибале, "
-    "где Рэнгем с 1987 года ведёт проект на станции Каньявара. Сюда меня привели "
-    "его книга и история, а ещё Кропоткин, у которого гориллы должны были "
-    "исчезнуть, но не исчезли. Пермит к гориллам $800 за трек, к шимпанзе ≈$250.",
-    UGANDA_PTS,
-    ["Ричард Рэнгем — «Парадокс добродетели»",
-     "Пётр Кропоткин — «Взаимопомощь как фактор эволюции»"],
-    [("Pangolin Photo Safaris — фототур", "9 дн · $14 450", "warn",
-      "2 трека гориллы, 2 дня шимпанзе · китоглавы на Мабамбе · до 7 чел."),
-     ("Cheesemans, США", "12 дн · $16 300", "warn",
-      "3 трека гориллы, 2 дня Кибале · группа 7"),
-     ("Natural Habitat, США", "10 дн · ≈$20 000", "warn",
-      "база $15 695 + пермиты $2 100 + перелёты · 2 + 2 трека · до 12"),
-     ("Gate 1 Travel, США", "11 дн · $7 099", "ok",
-      "1 трек гориллы + 1 шимпанзе · Мёрчисон, Куин-Элизабет · до 18"),
-     ("Geotours, Израиль, на иврите", "12 дн · $8 750", "ok",
-      "1 + 1 трек · с перелётом из Тель-Авива · группа от 12"),
-     ("Mermar Safaris, Уганда", "10 дн · €3 649", "ok",
-      "1 + 1 трек · до 7 в машине · пермиты уточнить")],
-    season="Сухо июнь–сентябрь и декабрь–февраль. Дожди март–май дешевле",
-    budget="Группой $3 600–20 000 без перелёта, 9–12 дней. Пермиты: гориллы $800 за трек, шимпанзе ≈$250",
-    board=board_cards("Уганда", [
-        ("Обложка: Рэнгем, «Парадокс добродетели»", 34),
-        ("Фото: горная горилла, Бвинди", 22),
-        ("Видео: шимпанзе Каньявары", 18),
-        ("Обложка: Кропоткин, «Взаимопомощь»", 30),
-        ("Фото: китоглав на Мабамбе", 26),
-    ]),
-    slug="uganda", height=372,
-)
-
-PE = page_country(
-    "Перу", "Лас-Пьедрас, к рейнджерам Junglekeepers",
-    country_svg("Peru", (-81.6, -18.6, -68.4, 0.2), PERU_PTS, lakes=True, rivers=True),
-    "Peru" in READY,
-    "После «Mother of God» Пола Розоли. Его организация Junglekeepers выкупает "
-    "землю в коридоре реки Лас-Пьедрас. Их партнёр Tamandua Expeditions возит "
-    "волонтёров к рейнджерам и водит искать анаконду. Все маршруты начинаются "
-    "в Пуэрто-Мальдонадо.",
-    PERU_PTS,
-    ["Пол Розоли — «Mother of God»"],
-    [("Become a Junglekeeper — неделя с рейнджерами", "8 дн · $2 795", "ok",
-      "патрули с рейнджерами, станция на Лас-Пьедрас · 5–10 чел."),
-     ("Herping — поиск анаконды и кайманов", "8 дн · $2 850", "ok",
-      "анаконда, 4 вида кайманов, бушмейстер · до 10 чел."),
-     ("Приют Amazon Shelter + Junglekeepers", "21 дн · $3 895", "ok",
-      "2 недели в приюте + 5 ночей у рейнджеров · тяжёлая работа")],
-    season="Выезды круглый год. Суше май–октябрь (проверить)",
-    budget="$2 800–3 900 без перелёта, 8–21 день. Плюс перелёт до Пуэрто-Мальдонадо и страховка",
-    board=board_cards("Перу", [
-        ("Обложка: Розоли, «Mother of God»", 34),
-        ("Видео: поиск анаконды", 18),
-        ("Фото: Лас-Пьедрас с лодки", 24),
-        ("Фото: рейнджеры Junglekeepers", 26),
-    ]),
-    slug="peru", height=300,
-)
 
 CSS = """
 @page { size: 100mm 216mm; margin: 0; }
@@ -350,7 +334,6 @@ h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; color: #
 .top.row { display: flex; align-items: baseline; gap: 10px; }
 .back { color: #b5532f; font-size: 14px; }
 .map svg { width: 100%; height: auto; display: block; }
-.map.world { margin: 10px -4mm 0; }
 .land { fill: #e2d9cc; stroke: #f4efe6; stroke-width: 0.6; }
 .ready { fill: #b5532f; stroke: #f4efe6; stroke-width: 0.6; }
 .working { fill: #e9b9a3; stroke: #b5532f; stroke-width: 0.8; }
@@ -371,9 +354,7 @@ h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; color: #
 .meta { grid-column: 2; font-size: 11px; color: #8a7f72; }
 .hint { margin: 10px 0 0; text-align: center; font-size: 11px; color: #a1978a; }
 .globes { margin: 6px 0 0; }
-.globe { position: relative; }
 .globe svg { width: 100%; height: auto; display: block; }
-.gl { position: absolute; left: 4mm; top: 3mm; font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; color: #8a7f72; }
 .sea { fill: #e4e9e8; }
 .rim { fill: none; stroke: #cfc6b8; stroke-width: 1.2; }
 .grat { fill: none; stroke: #fff; stroke-width: 0.6; }
@@ -399,10 +380,9 @@ h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; color: #
 .rrow { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 .rmeta { font-size: 10px; color: #8a7f72; margin-top: 1px; }
 .link { color: #3b6ea5; text-decoration: underline; }
-.tag { font-size: 10px; padding: 2px 6px; border-radius: 6px; background: #ece6dc; color: #6e655a; }
-.tag.old { background: #ece6dc; }
+.tag { font-size: 10px; padding: 2px 6px; border-radius: 6px; background: #ece6dc; color: #6e655a; white-space: nowrap; }
 .tag.warn { background: #f9d9c9; color: #8a3a1f; }
-.tag.ok { background: #e3eadb; color: #3f5a2e; white-space: nowrap; }
+.tag.ok { background: #e3eadb; color: #3f5a2e; }
 .facts { display: flex; gap: 6px; }
 .facts div { flex: 1; background: #fff; border-radius: 10px; padding: 7px 9px; }
 .fl { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #8a7f72; }
@@ -412,14 +392,21 @@ h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; color: #
 .board img { width: 100%; display: block; }
 .board .ph { display: flex; align-items: center; justify-content: center; background: #ddd5c8; color: #a1978a; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
 .board figcaption { font-size: 10.5px; line-height: 1.25; padding: 5px 7px 6px; color: #2a2622; }
-.photos { display: flex; gap: 6px; }
-.photos div { flex: 1; height: 20mm; border-radius: 8px; background: #ddd5c8; color: #a1978a; font-size: 11px; display: flex; align-items: center; justify-content: center; }
 .toggle { margin-top: 8px; display: flex; justify-content: space-between; align-items: center; background: #fff; border-radius: 12px; padding: 10px 12px; font-size: 14px; font-weight: 600; }
 .toggle i { width: 42px; height: 24px; border-radius: 12px; background: #d9d2c6; position: relative; }
 .toggle i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; }
 .toggle.on i { background: #b5532f; }
 .toggle.on i::after { left: 20px; }
 """
+
+WEBHEAD = """
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Места">
+<meta name="theme-color" content="#f4efe6">""" if WEB else ""
 
 WEBTAIL = """
 <style>
@@ -471,18 +458,22 @@ html, body { background: #e9e2d6; overflow-x: hidden; }
   });
   window.addEventListener('hashchange', show);
   show();
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  }
 })();
 </script>
 """ if WEB else ""
 
 WORLD = page_world()
+COUNTRIES = "".join(page_country(d) for d in DREAMS)
 doc = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Места, где я не был — макет</title><style>{CSS}{chr(10).join(PAGE_RULES)}</style></head>
-<body>{WORLD}{UG}{PE}
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Места, где я не был</title>{WEBHEAD}<style>{CSS}{chr(10).join(PAGE_RULES)}</style></head>
+<body>{WORLD}{COUNTRIES}
 <script>document.querySelectorAll('.page.country, .page.world').forEach(s => s.dataset.h = Math.ceil(s.scrollHeight / 96 * 25.4) + 6);</script>
 {WEBTAIL}</body></html>"""
 
 with open(OUT, "w", encoding="utf-8") as f:
     f.write(doc)
-print("written", OUT, len(doc), "bytes")
+print("written", OUT, len(doc), "bytes;", len(DREAMS), "dreams:", ", ".join(d["title"] for d in DREAMS))
