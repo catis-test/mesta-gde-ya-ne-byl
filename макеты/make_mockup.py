@@ -124,8 +124,8 @@ def globe_svg(lon0, lat0, size=600, pad=6):
     parts.append(f'</g><circle class="rim" cx="{cx}" cy="{cy}" r="{R}"/></svg>')
     return "\n".join(parts)
 
-READY = {"Uganda"}          # мечта готова — заливка
-WORKING = {"Peru"}          # в работе — контур
+READY = {"Uganda", "Peru"}  # мечта готова — тёмная заливка
+WORKING = set()             # в работе — бледная заливка
 
 def world_svg():
     parts = [f'<svg viewBox="0 0 {WW} {WH}" xmlns="http://www.w3.org/2000/svg">']
@@ -201,11 +201,12 @@ def page_world():
     <span><i class="sw ready"></i>Мечта готова</span>
     <span><i class="sw working"></i>Мечта в работе</span>
   </div>"""
-    stats = """
+    nr, nw = len(READY), len(WORKING)
+    stats = f"""
   <div class="stats">
-    <div class="ready"><b>1</b><span>готова</span></div>
-    <div class="working"><b>1</b><span>в работе</span></div>
-    <div><b>2</b><span>страны</span></div>
+    <div class="ready"><b>{nr}</b><span>{'готова' if nr == 1 else 'готовы'}</span></div>
+    <div class="working"><b>{nw}</b><span>в работе</span></div>
+    <div><b>{nr + nw}</b><span>{'страна' if nr + nw == 1 else 'страны'}</span></div>
   </div>"""
     globes = f"""
   <div class="globes">
@@ -217,6 +218,7 @@ def page_world():
 <section class="page world" id="world" style="page: world; height: {h}mm">
   <header class="top">
     <h1>Места, где я не был</h1>
+    <span class="add" title="Добавить мечту" aria-label="Добавить мечту">+</span>
   </header>{globes}{stats}
 </section>"""
     return f"""
@@ -226,8 +228,8 @@ def page_world():
     <p class="sub">Мечты, которые я проработал</p>
   </header>{globes}{legend}{stats}
   <ul class="list">
-    <li data-go="uganda"><span class="dot ready"></span><span class="name">Уганда</span><span class="meta">гориллы и шимпанзе · 3 точки</span></li>
-    <li data-go="peru"><span class="dot working"></span><span class="name">Перу</span><span class="meta">верховья Амазонки · 3 точки</span></li>
+    <li data-go="uganda"><span class="dot {'ready' if 'Uganda' in READY else 'working'}"></span><span class="name">Уганда</span><span class="meta">гориллы и шимпанзе · 3 точки</span></li>
+    <li data-go="peru"><span class="dot {'ready' if 'Peru' in READY else 'working'}"></span><span class="name">Перу</span><span class="meta">верховья Амазонки · 3 точки</span></li>
   </ul>
   <p class="hint">Нажмите на страну, чтобы открыть мечту</p>
 </section>"""
@@ -275,7 +277,7 @@ def page_country(title, subtitle, svg, ready, text, points, books, routes, seaso
 UG = page_country(
     "Уганда", "Гориллы и шимпанзе за одну поездку",
     country_svg("Uganda", (29.3, -1.6, 35.2, 4.4), UGANDA_PTS, lakes=True),
-    True,
+    "Uganda" in READY,
     "Поход к горным гориллам в Бвинди и в той же поездке — шимпанзе в Кибале, "
     "где Рэнгем с 1987 года ведёт проект на станции Каньявара. Сюда меня привели "
     "его книга и история, а ещё Кропоткин, у которого гориллы должны были "
@@ -310,7 +312,7 @@ UG = page_country(
 PE = page_country(
     "Перу", "Лас-Пьедрас, к рейнджерам Junglekeepers",
     country_svg("Peru", (-81.6, -18.6, -68.4, 0.2), PERU_PTS, lakes=True, rivers=True),
-    False,
+    "Peru" in READY,
     "После «Mother of God» Пола Розоли. Его организация Junglekeepers выкупает "
     "землю в коридоре реки Лас-Пьедрас. Их партнёр Tamandua Expeditions возит "
     "волонтёров к рейнджерам и водит искать анаконду. Все маршруты начинаются "
@@ -433,6 +435,8 @@ html, body { background: #e9e2d6; overflow-x: hidden; }
 .globe svg, .map svg { max-height: none; }
 .world { min-height: 100vh; padding-top: 10px; }
 .world h1 { font-size: 20px; }
+.world .top { display: flex; align-items: center; justify-content: space-between; }
+.add { width: 30px; height: 30px; border-radius: 50%; background: #b5532f; color: #fff; font-size: 24px; line-height: 29px; text-align: center; font-weight: 300; cursor: pointer; }
 .world .stats div.ready { background: #b5532f; }
 .world .stats div.ready b, .world .stats div.ready span { color: #fff; }
 .world .stats div.working { background: #e9b9a3; }
