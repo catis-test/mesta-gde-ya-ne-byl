@@ -57,7 +57,8 @@ def load_dreams():
             parts = [x.strip() for x in it.split("|")]
             lon, lat = (float(v) for v in parts[0].split(","))
             kind = "hub" if len(parts) > 2 and parts[2] in ("узел", "hub") else "main"
-            pts.append((lon, lat, parts[1], kind))
+            lab = parts[3] if len(parts) > 3 else ""   # подпись на карте: пусто | вниз | нет
+            pts.append((lon, lat, parts[1], kind, lab))
         routes = []
         for it in d["sections"].get("Маршруты", {}).get("items", []):
             parts = [x.strip() for x in it.split("|")] + ["", "", ""]
@@ -227,11 +228,17 @@ def country_svg(name, bbox, points, lakes=True, rivers=False, size=(600, 600)):
         for f in RIVERS["features"]:
             if in_bbox(f["geometry"], bbox):
                 parts.append(f'<path class="river" d="{path(f["geometry"], proj, close=False)}"/>')
-    for i, (lon, lat, label, kind) in enumerate(points, 1):
+    order = sorted(enumerate(points, 1), key=lambda ip: 0 if (len(ip[1]) > 4 and ip[1][4] == "нет") else 1)
+    for i, pt in order:
+        lon, lat, label, kind = pt[:4]
+        lab = pt[4] if len(pt) > 4 else ""
         x, y = proj(lon, lat)
         parts.append(f'<circle class="pt {kind}" cx="{x:.1f}" cy="{y:.1f}" r="11"/>')
         parts.append(f'<text class="ptn" x="{x:.1f}" y="{y + 4.5:.1f}" text-anchor="middle">{i}</text>')
-        parts.append(f'<text class="ptl" x="{x + 16:.1f}" y="{y + 5:.1f}">{html.escape(label)}</text>')
+        if lab == "вниз":
+            parts.append(f'<text class="ptl" x="{x:.1f}" y="{y + 27:.1f}" text-anchor="middle">{html.escape(label)}</text>')
+        elif lab != "нет":
+            parts.append(f'<text class="ptl" x="{x + 16:.1f}" y="{y + 5:.1f}">{html.escape(label)}</text>')
     parts.append("</svg>")
     return "\n".join(parts)
 
